@@ -1,0 +1,139 @@
+from flask import Flask, request, jsonify
+import openai
+import yfinance as yf
+import os
+from uuid import uuid4
+
+app = Flask(__name__)
+
+# Set your OpenAI API key (use .env or set in terminal)
+openai.api_key = os.getenv("OPENAI_API_KEY")
+
+# In-memory mock database
+users = {}        # user_id: {name, role}
+portfolios = {}   # user_id: [ {symbol, shares, price_at_purchase} ]
+quests = {
+    "buy_first_stock": {"title": "Buy your first stock", "completed_by": []},
+    "learn_about_etf": {"title": "Learn what an ETF is", "completed_by": []},
+}
+
+
+@app.route('/')
+def home():
+    return "Welcome to InvestifyKids – Smart finance education for the next generation!"
+
+
+@app.route('/register', methods=['POST'])
+def register():
+    data = request.get_json()
+    name = data.get("name")
+    role = data.get("role")  # 'child' or 'parent'
+    
+    if role not in ['child', 'parent']:
+        return jsonify({"error": "Role must be 'child' or 'parent'"}), 400
+
+    user_id = str(uuid4())
+    users[user_id] = {"name": name, "role": role}
+    portfolios[user_id] = []
+    return jsonify({"user_id": user_id, "message": f"Registered as {role}."})
+
+
+@app.route('/explain_term', methods=['POST'])
+def explain_term():
+    data = request.get_json()
+    term = data.get("term", "").strip()
+
+    if not term:
+        return jsonify({"error": "No term provided."}), 400
+
+    try:
+        response = openai.ChatCompletion.create(
+            model="gpt-4",
+            messages=[
+                {"role": "system", "content": "You are a friendly financial tutor for kids aged 10-14. Explain clearly and simply."},
+                {"role": "user", "content": f"What is '{term}'?"}
+            ]
+        )
+        explanation = response["choices"][0]["message"]["content"]
+        return jsonify({"term": term, "explanation": explanation})
+    
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route('/stocks/<symbol>', methods=['GET'])
+def get_stock(symbol):
+    try:
+        stock = yf.Ticker(symbol.upper())
+        info = stock.info
+        name = info.get("shortName", "Unknown Company")
+        price = info.get("regularMarketPrice")
+
+        if price is None:
+            raise ValueError("Price unavailable.")
+
+        return jsonify({"symbol": symbol.upper(), "name": name, "price": price})
+    
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route('/portfolio/<user_id>', methods=['GET'])
+def view_portfolio(user_id):
+    if user_id not in portfolios:
+        return jsonify({"error": "User not found"}), 404
+    return jsonify({"portfolio": portfolios[user_id]})
+
+
+@app.route('/portfolio/<user_id>/buy', methods=['POST'])
+def buy_stock(user_id):
+    if user_id not in users:
+        return jsonify({"error": "User not found"}), 404
+
+    data = request.get_json()
+    symbol = data.get("symbol", "").upper()
+    shares = data.get("shares", 0)
+
+    if shares <= 0:
+        return jsonify({"error": "Invalid share amount"}), 400
+
+    try:
+        stock = yf.Ticker(symbol)
+        info = stock.info
+        price = info.get("regularMarketPrice", None)
+
+        if price is None:
+            raise ValueError("Price unavailable")
+
+        portfolios[user_id].append({
+            "symbol": symbol,
+            "shares": shares,
+            "price_at_purchase": price
+        })
+
+        quests["buy_first_stock"]["completed_by"].append(user_id)
+
+        return jsonify({"message": f"{shares} shares of {symbol} bought at ${price:.2f}"})
+
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route('/quests/<user_id>', methods=['GET'])
+def get_quests(user_id):
+    if user_id not in users:
+        return jsonify({"error": "User not found"}), 404
+
+    result = []
+    for key, quest in quests.items():
+        result.append({
+            "id": key,
+            "title": quest["title"],
+            "completed": user_id in quest["completed_by"]
+        })
+
+    return jsonify({"quests": result})
+
+
+if __name__ == '__main__':
+    app.run(debug=True)
