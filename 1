@@ -1,284 +1,166 @@
-import React, { useState, useEffect } from "react";
+import streamlit as st
+from datetime import datetime
 
-export default function App() {
-  const [userId, setUserId] = useState("");
-  const [name, setName] = useState("");
-  const [role, setRole] = useState("child");
-  const [registered, setRegistered] = useState(false);
-
-  const [term, setTerm] = useState("");
-  const [explanation, setExplanation] = useState("");
-
-  const [symbol, setSymbol] = useState("");
-  const [stockInfo, setStockInfo] = useState(null);
-  const [stockError, setStockError] = useState("");
-
-  const [buySymbol, setBuySymbol] = useState("");
-  const [buyShares, setBuyShares] = useState(1);
-  const [buyMessage, setBuyMessage] = useState("");
-  const [buyError, setBuyError] = useState("");
-
-  const [portfolio, setPortfolio] = useState([]);
-  const [quests, setQuests] = useState([]);
-
-  // Register user (once per session)
-  async function registerUser() {
-    if (!name) {
-      alert("Please enter your name!");
-      return;
+# ---------- Initialize session state ----------
+if "registered" not in st.session_state:
+    st.session_state.registered = False
+if "name" not in st.session_state:
+    st.session_state.name = ""
+if "role" not in st.session_state:
+    st.session_state.role = ""
+if "portfolio" not in st.session_state:
+    st.session_state.portfolio = {}  # symbol -> {"shares": int, "avg_price": float}
+if "cash" not in st.session_state:
+    st.session_state.cash = 10000.0  # start with 10k virtual cash
+if "quests" not in st.session_state:
+    st.session_state.quests = {
+        "register": False,
+        "first_stock": False,
+        "learn_bond": False,
+        "check_price": False,
     }
-    const res = await fetch("http://localhost:5000/register", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ name, role }),
-    });
-    const data = await res.json();
-    setUserId(data.user_id);
-    setRegistered(true);
-  }
 
-  // Explain financial term
-  async function explainTerm(e) {
-    e.preventDefault();
-    if (!term) return;
-    const res = await fetch("http://localhost:5000/explain_term", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ term }),
-    });
-    const data = await res.json();
-    setExplanation(data.explanation);
-  }
-
-  // Fetch stock price
-  async function fetchStock(e) {
-    e.preventDefault();
-    if (!symbol) return;
-    setStockError("");
-    setStockInfo(null);
-    try {
-      const res = await fetch(`http://localhost:5000/stocks/${symbol.toUpperCase()}`);
-      if (!res.ok) {
-        const err = await res.json();
-        setStockError(err.error || "Error fetching stock data");
-        return;
-      }
-      const data = await res.json();
-      setStockInfo(data);
-    } catch {
-      setStockError("Network error");
-    }
-  }
-
-  // Buy stocks
-  async function buyStock(e) {
-    e.preventDefault();
-    setBuyError("");
-    setBuyMessage("");
-    if (!userId) {
-      setBuyError("You must register first");
-      return;
-    }
-    if (!buySymbol) {
-      setBuyError("Please enter stock symbol");
-      return;
-    }
-    if (buyShares <= 0) {
-      setBuyError("Number of shares must be positive");
-      return;
-    }
-    try {
-      const res = await fetch(`http://localhost:5000/portfolio/${userId}/buy`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ symbol: buySymbol, shares: Number(buyShares) }),
-      });
-      const data = await res.json();
-      if (res.ok) {
-        setBuyMessage(data.message);
-        loadPortfolio();
-        loadQuests();
-      } else {
-        setBuyError(data.error || "Error buying stock");
-      }
-    } catch {
-      setBuyError("Network error");
-    }
-  }
-
-  // Load portfolio
-  async function loadPortfolio() {
-    if (!userId) return;
-    const res = await fetch(`http://localhost:5000/portfolio/${userId}`);
-    if (res.ok) {
-      const data = await res.json();
-      setPortfolio(data.portfolio);
-    }
-  }
-
-  // Load quests
-  async function loadQuests() {
-    if (!userId) return;
-    const res = await fetch(`http://localhost:5000/quests/${userId}`);
-    if (res.ok) {
-      const data = await res.json();
-      setQuests(data.quests);
-    }
-  }
-
-  // After registration or buying, update portfolio and quests
-  useEffect(() => {
-    if (registered) {
-      loadPortfolio();
-      loadQuests();
-    }
-  }, [registered]);
-
-  return (
-    <div className="min-h-screen bg-gradient-to-r from-blue-50 to-green-100 p-6">
-      <h1 className="text-center text-4xl font-bold mb-6 text-blue-700">InvestifyKids</h1>
-
-      {!registered ? (
-        <section className="max-w-md mx-auto bg-white p-6 rounded shadow">
-          <h2 className="text-xl font-semibold mb-4">Register</h2>
-          <input
-            type="text"
-            placeholder="Your name"
-            className="border p-2 rounded w-full mb-3"
-            value={name}
-            onChange={(e) => setName(e.target.value)}
-          />
-          <select
-            className="border p-2 rounded w-full mb-3"
-            value={role}
-            onChange={(e) => setRole(e.target.value)}
-          >
-            <option value="child">Child</option>
-            <option value="parent">Parent</option>
-          </select>
-          <button
-            onClick={registerUser}
-            className="w-full bg-blue-600 text-white py-2 rounded hover:bg-blue-700"
-          >
-            Register
-          </button>
-        </section>
-      ) : (
-        <>
-          <section className="max-w-md mx-auto bg-white p-6 rounded shadow mb-8">
-            <h2 className="text-xl font-semibold mb-3">Explain a financial term</h2>
-            <form onSubmit={explainTerm} className="flex gap-2">
-              <input
-                type="text"
-                placeholder="e.g. stock"
-                className="border p-2 rounded flex-grow"
-                value={term}
-                onChange={(e) => setTerm(e.target.value)}
-                required
-              />
-              <button
-                type="submit"
-                className="bg-blue-600 text-white px-4 rounded hover:bg-blue-700"
-              >
-                Explain
-              </button>
-            </form>
-            {explanation && <p className="mt-4 bg-gray-100 p-3 rounded">{explanation}</p>}
-          </section>
-
-          <section className="max-w-md mx-auto bg-white p-6 rounded shadow mb-8">
-            <h2 className="text-xl font-semibold mb-3">Check Stock Price</h2>
-            <form
-              onSubmit={fetchStock}
-              className="flex gap-2"
-            >
-              <input
-                type="text"
-                placeholder="e.g. AAPL"
-                className="border p-2 rounded flex-grow"
-                value={symbol}
-                onChange={(e) => setSymbol(e.target.value)}
-                required
-              />
-              <button className="bg-blue-600 text-white px-4 rounded hover:bg-blue-700">Check</button>
-            </form>
-            {stockInfo && (
-              <p className="mt-4">
-                <strong>{stockInfo.name}</strong> ({stockInfo.symbol}): ${stockInfo.price}
-              </p>
-            )}
-            {stockError && <p className="mt-4 text-red-600">{stockError}</p>}
-          </section>
-
-          <section className="max-w-md mx-auto bg-white p-6 rounded shadow mb-8">
-            <h2 className="text-xl font-semibold mb-3">Buy Stock</h2>
-            <form onSubmit={buyStock} className="space-y-3">
-              <input
-                type="text"
-                placeholder="Stock symbol (e.g. AAPL)"
-                className="border p-2 rounded w-full"
-                value={buySymbol}
-                onChange={(e) => setBuySymbol(e.target.value)}
-                required
-              />
-              <input
-                type="number"
-                min="1"
-                className="border p-2 rounded w-full"
-                value={buyShares}
-                onChange={(e) => setBuyShares(e.target.value)}
-                required
-              />
-              <button className="w-full bg-green-600 text-white py-2 rounded hover:bg-green-700">
-                Buy
-              </button>
-            </form>
-            {buyMessage && <p className="mt-3 text-green-700">{buyMessage}</p>}
-            {buyError && <p className="mt-3 text-red-600">{buyError}</p>}
-          </section>
-
-          <section className="max-w-md mx-auto bg-white p-6 rounded shadow mb-8">
-            <h2 className="text-xl font-semibold mb-3">Your Portfolio</h2>
-            {portfolio.length === 0 ? (
-              <p>No stocks purchased yet.</p>
-            ) : (
-              <table className="w-full table-auto border-collapse border border-gray-300">
-                <thead>
-                  <tr>
-                    <th className="border border-gray-300 p-2">Symbol</th>
-                    <th className="border border-gray-300 p-2">Shares</th>
-                    <th className="border border-gray-300 p-2">Price at Purchase</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {portfolio.map((item, idx) => (
-                    <tr key={idx}>
-                      <td className="border border-gray-300 p-2">{item.symbol}</td>
-                      <td className="border border-gray-300 p-2">{item.shares}</td>
-                      <td className="border border-gray-300 p-2">${item.price_at_purchase}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            )}
-          </section>
-
-          <section className="max-w-md mx-auto bg-white p-6 rounded shadow">
-            <h2 className="text-xl font-semibold mb-3">Quests</h2>
-            {quests.length === 0 ? (
-              <p>No quests available.</p>
-            ) : (
-              <ul className="list-disc list-inside">
-                {quests.map((q) => (
-                  <li key={q.id} className={q.completed ? "text-green-700" : "text-gray-700"}>
-                    {q.title} {q.completed ? "(Completed)" : "(Incomplete)"}
-                  </li>
-                ))}
-              </ul>
-            )}
-          </section>
-        </>
-      )}
-    </div>
-  );
+# ---------- Mock data ----------
+FINANCIAL_TERMS = {
+    "stock": "A stock is a share representing ownership in a company.",
+    "bond": "A bond is a loan made by an investor to a borrower, like a company or government.",
+    "fintech": "Fintech is financial technology, innovations improving financial services.",
+    "dividend": "A dividend is a payment made by a company to its shareholders from profits.",
+    "portfolio": "A portfolio is a collection of investments owned by an investor.",
 }
+
+MOCK_STOCK_PRICES = {
+    "AAPL": 150.12,
+    "TSLA": 700.45,
+    "GOOG": 2800.99,
+    "MSFT": 305.22,
+    "AMZN": 3500.50,
+    "F": 12.45,
+}
+
+# ---------- Functions ----------
+
+def register_user(name: str, role: str):
+    st.session_state.name = name.strip()
+    st.session_state.role = role
+    st.session_state.registered = True
+    st.session_state.quests["register"] = True
+    st.success(f"Welcome, {st.session_state.name}! You registered as a {st.session_state.role}.")
+
+def explain_term(term: str) -> str:
+    return FINANCIAL_TERMS.get(term.lower(), "Sorry, no explanation found for this term.")
+
+def get_stock_price(symbol: str):
+    symbol = symbol.upper()
+    return MOCK_STOCK_PRICES.get(symbol, None)
+
+def buy_stock(symbol: str, shares: int):
+    symbol = symbol.upper()
+    price = get_stock_price(symbol)
+    if price is None:
+        return False, "Stock symbol not found."
+    cost = shares * price
+    if cost > st.session_state.cash:
+        return False, f"Insufficient funds. You need ${cost:.2f} but have only ${st.session_state.cash:.2f}."
+    # Update portfolio
+    if symbol in st.session_state.portfolio:
+        current = st.session_state.portfolio[symbol]
+        total_shares = current["shares"] + shares
+        # Weighted avg price
+        avg_price = ((current["avg_price"] * current["shares"]) + cost) / total_shares
+        st.session_state.portfolio[symbol] = {"shares": total_shares, "avg_price": avg_price}
+    else:
+        st.session_state.portfolio[symbol] = {"shares": shares, "avg_price": price}
+    st.session_state.cash -= cost
+    if not st.session_state.quests["first_stock"]:
+        st.session_state.quests["first_stock"] = True
+    return True, f"Bought {shares} shares of {symbol} at ${price:.2f} each, costing ${cost:.2f}."
+
+def portfolio_summary():
+    total_value = 0.0
+    lines = []
+    for symbol, data in st.session_state.portfolio.items():
+        price = get_stock_price(symbol)
+        value = price * data["shares"] if price else 0
+        total_value += value
+        lines.append(f"{symbol}: {data['shares']} shares, Avg price: ${data['avg_price']:.2f}, Current price: ${price if price else 'N/A'}, Value: ${value:.2f}")
+    return lines, total_value
+
+def complete_quest(quest_key: str):
+    if quest_key in st.session_state.quests:
+        st.session_state.quests[quest_key] = True
+
+# ---------- Streamlit UI ----------
+
+st.title("InvestifyKids - FinTech Learning App")
+
+if not st.session_state.registered:
+    st.header("Register")
+    name = st.text_input("Enter your name")
+    role = st.selectbox("Select your role", ["Child", "Parent"])
+    if st.button("Register"):
+        if not name.strip():
+            st.error("Name cannot be empty!")
+        else:
+            register_user(name, role)
+else:
+    st.sidebar.write(f"Hello, {st.session_state.name} ({st.session_state.role})")
+    st.sidebar.write(f"Cash Balance: ${st.session_state.cash:.2f}")
+
+    st.header("Explain Financial Terms")
+    term = st.text_input("Enter a financial term to learn about it")
+    if st.button("Explain Term"):
+        if not term.strip():
+            st.error("Please enter a term!")
+        else:
+            explanation = explain_term(term)
+            st.info(explanation)
+            if term.lower() == "bond":
+                complete_quest("learn_bond")
+
+    st.header("Check Stock Price")
+    stock_symbol = st.text_input("Enter stock symbol (e.g. AAPL)")
+    if st.button("Check Price"):
+        price = get_stock_price(stock_symbol)
+        if price is None:
+            st.error("Stock symbol not found.")
+        else:
+            st.success(f"The current price of {stock_symbol.upper()} is ${price:.2f}")
+            complete_quest("check_price")
+
+    st.header("Buy Stocks")
+    buy_symbol = st.text_input("Stock symbol to buy", key="buy_symbol")
+    buy_shares = st.number_input("Number of shares", min_value=1, step=1, key="buy_shares")
+    if st.button("Buy"):
+        if not buy_symbol.strip():
+            st.error("Please enter stock symbol.")
+        else:
+            success, msg = buy_stock(buy_symbol, buy_shares)
+            if success:
+                st.success(msg)
+            else:
+                st.error(msg)
+
+    st.header("Your Portfolio")
+    if len(st.session_state.portfolio) == 0:
+        st.write("You have not purchased any stocks yet.")
+    else:
+        lines, total_value = portfolio_summary()
+        for line in lines:
+            st.write(line)
+        st.write(f"Total portfolio value: ${total_value:.2f}")
+        st.write(f"Cash remaining: ${st.session_state.cash:.2f}")
+
+    st.header("Quests and Achievements")
+    quest_texts = {
+        "register": "Complete registration",
+        "first_stock": "Buy your first stock",
+        "learn_bond": "Learn what a bond is",
+        "check_price": "Check stock price",
+    }
+    for key, text in quest_texts.items():
+        status = "✅ Completed" if st.session_state.quests.get(key) else "❌ Incomplete"
+        st.write(f"{text}: {status}")
+
+    st.write("---")
+    st.write(f"Session started at: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
