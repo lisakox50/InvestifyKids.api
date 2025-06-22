@@ -1,278 +1,284 @@
-from flask import Flask, request, jsonify
-import random
-
-app = Flask(__name__)
-
-# Фейковые объяснения терминов
-fake_explanations = {
-    "stock": "A stock is like owning a small piece of a company. When the company earns money, your piece can grow in value!",
-    "bond": "A bond is when you lend money to a company or government, and they promise to pay you back later with some extra.",
-    "etf": "An ETF is like a big basket full of many different stocks. It helps spread out risk and is easy to invest in.",
-}
-
-# Фейковые цены акций
-fake_prices = {
-    "AAPL": {"name": "Apple Inc.", "price": 187.45},
-    "MSFT": {"name": "Microsoft Corp.", "price": 323.12},
-    "GOOG": {"name": "Alphabet Inc.", "price": 134.78},
-}
-
-# Пользователи и портфели
-users = {}
-portfolios = {}
-quests = {
-    "buy_first_stock": {"title": "Buy your first stock", "completed_by": []},
-    "learn_about_etf": {"title": "Learn what an ETF is", "completed_by": []},
-}
-
-@app.route("/")
-def home():
-    return "👋 InvestifyKids API is running!"
-
-@app.route("/register", methods=["POST"])
-def register():
-    data = request.get_json()
-    name = data.get("name", "Guest")
-    role = data.get("role", "child")
-
-    user_id = f"user_{random.randint(1000, 9999)}"
-    users[user_id] = {"name": name, "role": role}
-    portfolios[user_id] = []
-    return jsonify({"user_id": user_id, "message": f"Welcome {name}! Registered as {role}."})
-
-@app.route("/explain_term", methods=["POST"])
-def explain_term():
-    data = request.get_json()
-    term = data.get("term", "").lower()
-    explanation = fake_explanations.get(term, "Sorry, I don't know that term yet!")
-    return jsonify({"term": term, "explanation": explanation})
-
-@app.route("/stocks/<symbol>", methods=["GET"])
-def get_stock(symbol):
-    symbol = symbol.upper()
-    stock = fake_prices.get(symbol)
-    if not stock:
-        return jsonify({"error": f"No data for symbol '{symbol}'"}), 404
-    return jsonify(stock)
-
-@app.route("/portfolio/<user_id>", methods=["GET"])
-def view_portfolio(user_id):
-    if user_id not in portfolios:
-        return jsonify({"error": "User not found"}), 404
-    return jsonify({"portfolio": portfolios[user_id]})
-
-@app.route("/portfolio/<user_id>/buy", methods=["POST"])
-def buy_stock(user_id):
-    if user_id not in users:
-        return jsonify({"error": "User not found"}), 404
-
-    data = request.get_json()
-    symbol = data.get("symbol", "").upper()
-    shares = data.get("shares", 1)
-
-    if symbol not in fake_prices:
-        return jsonify({"error": "Symbol not found"}), 400
-
-    stock_data = fake_prices[symbol]
-    portfolios[user_id].append({
-        "symbol": symbol,
-        "shares": shares,
-        "price_at_purchase": stock_data["price"]
-    })
-
-    # Отметить квест
-    if user_id not in quests["buy_first_stock"]["completed_by"]:
-        quests["buy_first_stock"]["completed_by"].append(user_id)
-
-    return jsonify({"message": f"Bought {shares} shares of {symbol} at ${stock_data['price']}"})
-
-@app.route("/quests/<user_id>", methods=["GET"])
-def get_quests(user_id):
-    if user_id not in users:
-        return jsonify({"error": "User not found"}), 404
-    result = []
-    for key, quest in quests.items():
-        result.append({
-            "id": key,
-            "title": quest["title"],
-            "completed": user_id in quest["completed_by"]
-        })
-    return jsonify({"quests": result})
-
-if __name__ == "__main__":
-    app.run(debug=True)
-    {
-  "name": "investifykids",
-  "version": "1.0.0",
-  "private": true,
-  "dependencies": {
-    "react": "^18.0.0",
-    "react-dom": "^18.0.0",
-    "react-scripts": "5.0.1",
-    "tailwindcss": "^3.0.0"
-  },
-  "scripts": {
-    "start": "react-scripts start"
-  }
-}
-module.exports = {
-  content: ["./src/**/*.{js,jsx}"],
-  theme: {
-    extend: {},
-  },
-  plugins: [],
-}
-@tailwind base;
-@tailwind components;
-@tailwind utilities;
-import React from "react";
-import ReactDOM from "react-dom/client";
-import App from "./App";
-import "./index.css";
-
-const root = ReactDOM.createRoot(document.getElementById("root"));
-root.render(<App />);
-import React from "react";
-import Navbar from "./components/Navbar";
-import ExplainTerm from "./components/ExplainTerm";
-import StockPrice from "./components/StockPrice";
-import Portfolio from "./components/Portfolio";
-import BuyStock from "./components/BuyStock";
-import Quests from "./components/Quests";
+import React, { useState, useEffect } from "react";
 
 export default function App() {
-  return (
-    <div className="min-h-screen bg-gradient-to-r from-blue-50 to-green-100">
-      <Navbar />
-      <main className="max-w-4xl mx-auto p-6 space-y-8">
-        <ExplainTerm />
-        <StockPrice />
-        <BuyStock />
-        <Portfolio />
-        <Quests />
-      </main>
-    </div>
-  );
-}
-export default function Navbar() {
-  return (
-    <nav className="bg-blue-600 text-white p-4 font-bold text-2xl text-center shadow">
-      InvestifyKids
-    </nav>
-  );
-}
-import { useState } from "react";
+  const [userId, setUserId] = useState("");
+  const [name, setName] = useState("");
+  const [role, setRole] = useState("child");
+  const [registered, setRegistered] = useState(false);
 
-export default function ExplainTerm() {
   const [term, setTerm] = useState("");
   const [explanation, setExplanation] = useState("");
-  const [loading, setLoading] = useState(false);
 
-  async function handleExplain(e) {
-    e.preventDefault();
-    setLoading(true);
-    try {
-      const res = await fetch("http://localhost:5000/explain_term", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ term }),
-      });
-      const data = await res.json();
-      setExplanation(data.explanation);
-    } catch {
-      setExplanation("Error fetching explanation");
-    } finally {
-      setLoading(false);
+  const [symbol, setSymbol] = useState("");
+  const [stockInfo, setStockInfo] = useState(null);
+  const [stockError, setStockError] = useState("");
+
+  const [buySymbol, setBuySymbol] = useState("");
+  const [buyShares, setBuyShares] = useState(1);
+  const [buyMessage, setBuyMessage] = useState("");
+  const [buyError, setBuyError] = useState("");
+
+  const [portfolio, setPortfolio] = useState([]);
+  const [quests, setQuests] = useState([]);
+
+  // Register user (once per session)
+  async function registerUser() {
+    if (!name) {
+      alert("Please enter your name!");
+      return;
     }
+    const res = await fetch("http://localhost:5000/register", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ name, role }),
+    });
+    const data = await res.json();
+    setUserId(data.user_id);
+    setRegistered(true);
   }
 
-  return (
-    <section className="bg-white p-6 rounded shadow">
-      <h2 className="text-xl font-semibold mb-2">Explain a financial term</h2>
-      <form onSubmit={handleExplain} className="flex gap-2">
-        <input
-          className="border rounded p-2 flex-grow"
-          placeholder="Enter term (e.g. stock)"
-          value={term}
-          onChange={(e) => setTerm(e.target.value)}
-          required
-        />
-        <button
-          type="submit"
-          disabled={loading}
-          className="bg-blue-600 text-white px-4 rounded disabled:opacity-50"
-        >
-          {loading ? "Loading..." : "Explain"}
-        </button>
-      </form>
-      {explanation && <p className="mt-4 bg-gray-100 p-3 rounded">{explanation}</p>}
-    </section>
-  );
-}
-import { useState } from "react";
+  // Explain financial term
+  async function explainTerm(e) {
+    e.preventDefault();
+    if (!term) return;
+    const res = await fetch("http://localhost:5000/explain_term", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ term }),
+    });
+    const data = await res.json();
+    setExplanation(data.explanation);
+  }
 
-export default function StockPrice() {
-  const [symbol, setSymbol] = useState("");
-  const [stock, setStock] = useState(null);
-  const [error, setError] = useState("");
-
+  // Fetch stock price
   async function fetchStock(e) {
     e.preventDefault();
-    setError("");
-    setStock(null);
+    if (!symbol) return;
+    setStockError("");
+    setStockInfo(null);
     try {
       const res = await fetch(`http://localhost:5000/stocks/${symbol.toUpperCase()}`);
       if (!res.ok) {
-        const errData = await res.json();
-        setError(errData.error || "Error fetching stock");
+        const err = await res.json();
+        setStockError(err.error || "Error fetching stock data");
         return;
       }
       const data = await res.json();
-      setStock(data);
+      setStockInfo(data);
     } catch {
-      setError("Network error");
+      setStockError("Network error");
     }
   }
 
+  // Buy stocks
+  async function buyStock(e) {
+    e.preventDefault();
+    setBuyError("");
+    setBuyMessage("");
+    if (!userId) {
+      setBuyError("You must register first");
+      return;
+    }
+    if (!buySymbol) {
+      setBuyError("Please enter stock symbol");
+      return;
+    }
+    if (buyShares <= 0) {
+      setBuyError("Number of shares must be positive");
+      return;
+    }
+    try {
+      const res = await fetch(`http://localhost:5000/portfolio/${userId}/buy`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ symbol: buySymbol, shares: Number(buyShares) }),
+      });
+      const data = await res.json();
+      if (res.ok) {
+        setBuyMessage(data.message);
+        loadPortfolio();
+        loadQuests();
+      } else {
+        setBuyError(data.error || "Error buying stock");
+      }
+    } catch {
+      setBuyError("Network error");
+    }
+  }
+
+  // Load portfolio
+  async function loadPortfolio() {
+    if (!userId) return;
+    const res = await fetch(`http://localhost:5000/portfolio/${userId}`);
+    if (res.ok) {
+      const data = await res.json();
+      setPortfolio(data.portfolio);
+    }
+  }
+
+  // Load quests
+  async function loadQuests() {
+    if (!userId) return;
+    const res = await fetch(`http://localhost:5000/quests/${userId}`);
+    if (res.ok) {
+      const data = await res.json();
+      setQuests(data.quests);
+    }
+  }
+
+  // After registration or buying, update portfolio and quests
+  useEffect(() => {
+    if (registered) {
+      loadPortfolio();
+      loadQuests();
+    }
+  }, [registered]);
+
   return (
-    <section className="bg-white p-6 rounded shadow">
-      <h2 className="text-xl font-semibold mb-2">Check Stock Price</h2>
-      <form onSubmit={fetchStock} className="flex gap-2">
-        <input
-          type="text"
-          placeholder="Stock symbol (e.g. AAPL)"
-          value={symbol}
-          onChange={(e) => setSymbol(e.target.value)}
-          className="border rounded p-2 flex-grow"
-          required
-        />
-        <button type="submit" className="bg-blue-600 text-white px-4 rounded">
-          Check
-        </button>
-      </form>
-      {stock && (
-        <div className="mt-4">
-          <p>
-            <strong>{stock.name}</strong> ({stock.symbol}): ${stock.price}
-          </p>
-        </div>
+    <div className="min-h-screen bg-gradient-to-r from-blue-50 to-green-100 p-6">
+      <h1 className="text-center text-4xl font-bold mb-6 text-blue-700">InvestifyKids</h1>
+
+      {!registered ? (
+        <section className="max-w-md mx-auto bg-white p-6 rounded shadow">
+          <h2 className="text-xl font-semibold mb-4">Register</h2>
+          <input
+            type="text"
+            placeholder="Your name"
+            className="border p-2 rounded w-full mb-3"
+            value={name}
+            onChange={(e) => setName(e.target.value)}
+          />
+          <select
+            className="border p-2 rounded w-full mb-3"
+            value={role}
+            onChange={(e) => setRole(e.target.value)}
+          >
+            <option value="child">Child</option>
+            <option value="parent">Parent</option>
+          </select>
+          <button
+            onClick={registerUser}
+            className="w-full bg-blue-600 text-white py-2 rounded hover:bg-blue-700"
+          >
+            Register
+          </button>
+        </section>
+      ) : (
+        <>
+          <section className="max-w-md mx-auto bg-white p-6 rounded shadow mb-8">
+            <h2 className="text-xl font-semibold mb-3">Explain a financial term</h2>
+            <form onSubmit={explainTerm} className="flex gap-2">
+              <input
+                type="text"
+                placeholder="e.g. stock"
+                className="border p-2 rounded flex-grow"
+                value={term}
+                onChange={(e) => setTerm(e.target.value)}
+                required
+              />
+              <button
+                type="submit"
+                className="bg-blue-600 text-white px-4 rounded hover:bg-blue-700"
+              >
+                Explain
+              </button>
+            </form>
+            {explanation && <p className="mt-4 bg-gray-100 p-3 rounded">{explanation}</p>}
+          </section>
+
+          <section className="max-w-md mx-auto bg-white p-6 rounded shadow mb-8">
+            <h2 className="text-xl font-semibold mb-3">Check Stock Price</h2>
+            <form
+              onSubmit={fetchStock}
+              className="flex gap-2"
+            >
+              <input
+                type="text"
+                placeholder="e.g. AAPL"
+                className="border p-2 rounded flex-grow"
+                value={symbol}
+                onChange={(e) => setSymbol(e.target.value)}
+                required
+              />
+              <button className="bg-blue-600 text-white px-4 rounded hover:bg-blue-700">Check</button>
+            </form>
+            {stockInfo && (
+              <p className="mt-4">
+                <strong>{stockInfo.name}</strong> ({stockInfo.symbol}): ${stockInfo.price}
+              </p>
+            )}
+            {stockError && <p className="mt-4 text-red-600">{stockError}</p>}
+          </section>
+
+          <section className="max-w-md mx-auto bg-white p-6 rounded shadow mb-8">
+            <h2 className="text-xl font-semibold mb-3">Buy Stock</h2>
+            <form onSubmit={buyStock} className="space-y-3">
+              <input
+                type="text"
+                placeholder="Stock symbol (e.g. AAPL)"
+                className="border p-2 rounded w-full"
+                value={buySymbol}
+                onChange={(e) => setBuySymbol(e.target.value)}
+                required
+              />
+              <input
+                type="number"
+                min="1"
+                className="border p-2 rounded w-full"
+                value={buyShares}
+                onChange={(e) => setBuyShares(e.target.value)}
+                required
+              />
+              <button className="w-full bg-green-600 text-white py-2 rounded hover:bg-green-700">
+                Buy
+              </button>
+            </form>
+            {buyMessage && <p className="mt-3 text-green-700">{buyMessage}</p>}
+            {buyError && <p className="mt-3 text-red-600">{buyError}</p>}
+          </section>
+
+          <section className="max-w-md mx-auto bg-white p-6 rounded shadow mb-8">
+            <h2 className="text-xl font-semibold mb-3">Your Portfolio</h2>
+            {portfolio.length === 0 ? (
+              <p>No stocks purchased yet.</p>
+            ) : (
+              <table className="w-full table-auto border-collapse border border-gray-300">
+                <thead>
+                  <tr>
+                    <th className="border border-gray-300 p-2">Symbol</th>
+                    <th className="border border-gray-300 p-2">Shares</th>
+                    <th className="border border-gray-300 p-2">Price at Purchase</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {portfolio.map((item, idx) => (
+                    <tr key={idx}>
+                      <td className="border border-gray-300 p-2">{item.symbol}</td>
+                      <td className="border border-gray-300 p-2">{item.shares}</td>
+                      <td className="border border-gray-300 p-2">${item.price_at_purchase}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            )}
+          </section>
+
+          <section className="max-w-md mx-auto bg-white p-6 rounded shadow">
+            <h2 className="text-xl font-semibold mb-3">Quests</h2>
+            {quests.length === 0 ? (
+              <p>No quests available.</p>
+            ) : (
+              <ul className="list-disc list-inside">
+                {quests.map((q) => (
+                  <li key={q.id} className={q.completed ? "text-green-700" : "text-gray-700"}>
+                    {q.title} {q.completed ? "(Completed)" : "(Incomplete)"}
+                  </li>
+                ))}
+              </ul>
+            )}
+          </section>
+        </>
       )}
-      {error && <p className="mt-4 text-red-600">{error}</p>}
-    </section>
+    </div>
   );
 }
-import { useState } from "react";
-
-export default function BuyStock() {
-  const [userId, setUserId] = useState("");
-  const [symbol, setSymbol] = useState("");
-  const [shares, setShares] = useState(1);
-  const [message, setMessage] = useState("");
-  const [error, setError] = useState("");
-
-  async function handleBuy(e) {
-    e.preventDefault();
-    setMessage("");
-    setError("");
-    try {
-      const
