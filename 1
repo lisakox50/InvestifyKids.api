@@ -1,129 +1,95 @@
 from flask import Flask, request, jsonify
-import openai
-import yfinance as yf
-import os
-from uuid import uuid4
+import random
 
 app = Flask(__name__)
 
-# Set your OpenAI API key (use .env or set in terminal)
-openai.api_key = os.getenv("OPENAI_API_KEY")
+# Фейковые объяснения терминов
+fake_explanations = {
+    "stock": "A stock is like owning a small piece of a company. When the company earns money, your piece can grow in value!",
+    "bond": "A bond is when you lend money to a company or government, and they promise to pay you back later with some extra.",
+    "etf": "An ETF is like a big basket full of many different stocks. It helps spread out risk and is easy to invest in.",
+}
 
-# In-memory mock database
-users = {}        # user_id: {name, role}
-portfolios = {}   # user_id: [ {symbol, shares, price_at_purchase} ]
+# Фейковые цены акций
+fake_prices = {
+    "AAPL": {"name": "Apple Inc.", "price": 187.45},
+    "MSFT": {"name": "Microsoft Corp.", "price": 323.12},
+    "GOOG": {"name": "Alphabet Inc.", "price": 134.78},
+}
+
+# Пользователи и портфели
+users = {}
+portfolios = {}
 quests = {
     "buy_first_stock": {"title": "Buy your first stock", "completed_by": []},
     "learn_about_etf": {"title": "Learn what an ETF is", "completed_by": []},
 }
 
-
-@app.route('/')
+@app.route("/")
 def home():
-    return "Welcome to InvestifyKids – Smart finance education for the next generation!"
+    return "👋 InvestifyKids API is running!"
 
-
-@app.route('/register', methods=['POST'])
+@app.route("/register", methods=["POST"])
 def register():
     data = request.get_json()
-    name = data.get("name")
-    role = data.get("role")  # 'child' or 'parent'
-    
-    if role not in ['child', 'parent']:
-        return jsonify({"error": "Role must be 'child' or 'parent'"}), 400
+    name = data.get("name", "Guest")
+    role = data.get("role", "child")
 
-    user_id = str(uuid4())
+    user_id = f"user_{random.randint(1000, 9999)}"
     users[user_id] = {"name": name, "role": role}
     portfolios[user_id] = []
-    return jsonify({"user_id": user_id, "message": f"Registered as {role}."})
+    return jsonify({"user_id": user_id, "message": f"Welcome {name}! Registered as {role}."})
 
-
-@app.route('/explain_term', methods=['POST'])
+@app.route("/explain_term", methods=["POST"])
 def explain_term():
     data = request.get_json()
-    term = data.get("term", "").strip()
+    term = data.get("term", "").lower()
+    explanation = fake_explanations.get(term, "Sorry, I don't know that term yet!")
+    return jsonify({"term": term, "explanation": explanation})
 
-    if not term:
-        return jsonify({"error": "No term provided."}), 400
-
-    try:
-        response = openai.ChatCompletion.create(
-            model="gpt-4",
-            messages=[
-                {"role": "system", "content": "You are a friendly financial tutor for kids aged 10-14. Explain clearly and simply."},
-                {"role": "user", "content": f"What is '{term}'?"}
-            ]
-        )
-        explanation = response["choices"][0]["message"]["content"]
-        return jsonify({"term": term, "explanation": explanation})
-    
-    except Exception as e:
-        return jsonify({"error": str(e)}), 500
-
-
-@app.route('/stocks/<symbol>', methods=['GET'])
+@app.route("/stocks/<symbol>", methods=["GET"])
 def get_stock(symbol):
-    try:
-        stock = yf.Ticker(symbol.upper())
-        info = stock.info
-        name = info.get("shortName", "Unknown Company")
-        price = info.get("regularMarketPrice")
+    symbol = symbol.upper()
+    stock = fake_prices.get(symbol)
+    if not stock:
+        return jsonify({"error": f"No data for symbol '{symbol}'"}), 404
+    return jsonify(stock)
 
-        if price is None:
-            raise ValueError("Price unavailable.")
-
-        return jsonify({"symbol": symbol.upper(), "name": name, "price": price})
-    
-    except Exception as e:
-        return jsonify({"error": str(e)}), 500
-
-
-@app.route('/portfolio/<user_id>', methods=['GET'])
+@app.route("/portfolio/<user_id>", methods=["GET"])
 def view_portfolio(user_id):
     if user_id not in portfolios:
         return jsonify({"error": "User not found"}), 404
     return jsonify({"portfolio": portfolios[user_id]})
 
-
-@app.route('/portfolio/<user_id>/buy', methods=['POST'])
+@app.route("/portfolio/<user_id>/buy", methods=["POST"])
 def buy_stock(user_id):
     if user_id not in users:
         return jsonify({"error": "User not found"}), 404
 
     data = request.get_json()
     symbol = data.get("symbol", "").upper()
-    shares = data.get("shares", 0)
+    shares = data.get("shares", 1)
 
-    if shares <= 0:
-        return jsonify({"error": "Invalid share amount"}), 400
+    if symbol not in fake_prices:
+        return jsonify({"error": "Symbol not found"}), 400
 
-    try:
-        stock = yf.Ticker(symbol)
-        info = stock.info
-        price = info.get("regularMarketPrice", None)
+    stock_data = fake_prices[symbol]
+    portfolios[user_id].append({
+        "symbol": symbol,
+        "shares": shares,
+        "price_at_purchase": stock_data["price"]
+    })
 
-        if price is None:
-            raise ValueError("Price unavailable")
-
-        portfolios[user_id].append({
-            "symbol": symbol,
-            "shares": shares,
-            "price_at_purchase": price
-        })
-
+    # Отметить квест
+    if user_id not in quests["buy_first_stock"]["completed_by"]:
         quests["buy_first_stock"]["completed_by"].append(user_id)
 
-        return jsonify({"message": f"{shares} shares of {symbol} bought at ${price:.2f}"})
+    return jsonify({"message": f"Bought {shares} shares of {symbol} at ${stock_data['price']}"})
 
-    except Exception as e:
-        return jsonify({"error": str(e)}), 500
-
-
-@app.route('/quests/<user_id>', methods=['GET'])
+@app.route("/quests/<user_id>", methods=["GET"])
 def get_quests(user_id):
     if user_id not in users:
         return jsonify({"error": "User not found"}), 404
-
     result = []
     for key, quest in quests.items():
         result.append({
@@ -131,9 +97,182 @@ def get_quests(user_id):
             "title": quest["title"],
             "completed": user_id in quest["completed_by"]
         })
-
     return jsonify({"quests": result})
 
-
-if __name__ == '__main__':
+if __name__ == "__main__":
     app.run(debug=True)
+    {
+  "name": "investifykids",
+  "version": "1.0.0",
+  "private": true,
+  "dependencies": {
+    "react": "^18.0.0",
+    "react-dom": "^18.0.0",
+    "react-scripts": "5.0.1",
+    "tailwindcss": "^3.0.0"
+  },
+  "scripts": {
+    "start": "react-scripts start"
+  }
+}
+module.exports = {
+  content: ["./src/**/*.{js,jsx}"],
+  theme: {
+    extend: {},
+  },
+  plugins: [],
+}
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+import React from "react";
+import ReactDOM from "react-dom/client";
+import App from "./App";
+import "./index.css";
+
+const root = ReactDOM.createRoot(document.getElementById("root"));
+root.render(<App />);
+import React from "react";
+import Navbar from "./components/Navbar";
+import ExplainTerm from "./components/ExplainTerm";
+import StockPrice from "./components/StockPrice";
+import Portfolio from "./components/Portfolio";
+import BuyStock from "./components/BuyStock";
+import Quests from "./components/Quests";
+
+export default function App() {
+  return (
+    <div className="min-h-screen bg-gradient-to-r from-blue-50 to-green-100">
+      <Navbar />
+      <main className="max-w-4xl mx-auto p-6 space-y-8">
+        <ExplainTerm />
+        <StockPrice />
+        <BuyStock />
+        <Portfolio />
+        <Quests />
+      </main>
+    </div>
+  );
+}
+export default function Navbar() {
+  return (
+    <nav className="bg-blue-600 text-white p-4 font-bold text-2xl text-center shadow">
+      InvestifyKids
+    </nav>
+  );
+}
+import { useState } from "react";
+
+export default function ExplainTerm() {
+  const [term, setTerm] = useState("");
+  const [explanation, setExplanation] = useState("");
+  const [loading, setLoading] = useState(false);
+
+  async function handleExplain(e) {
+    e.preventDefault();
+    setLoading(true);
+    try {
+      const res = await fetch("http://localhost:5000/explain_term", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ term }),
+      });
+      const data = await res.json();
+      setExplanation(data.explanation);
+    } catch {
+      setExplanation("Error fetching explanation");
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  return (
+    <section className="bg-white p-6 rounded shadow">
+      <h2 className="text-xl font-semibold mb-2">Explain a financial term</h2>
+      <form onSubmit={handleExplain} className="flex gap-2">
+        <input
+          className="border rounded p-2 flex-grow"
+          placeholder="Enter term (e.g. stock)"
+          value={term}
+          onChange={(e) => setTerm(e.target.value)}
+          required
+        />
+        <button
+          type="submit"
+          disabled={loading}
+          className="bg-blue-600 text-white px-4 rounded disabled:opacity-50"
+        >
+          {loading ? "Loading..." : "Explain"}
+        </button>
+      </form>
+      {explanation && <p className="mt-4 bg-gray-100 p-3 rounded">{explanation}</p>}
+    </section>
+  );
+}
+import { useState } from "react";
+
+export default function StockPrice() {
+  const [symbol, setSymbol] = useState("");
+  const [stock, setStock] = useState(null);
+  const [error, setError] = useState("");
+
+  async function fetchStock(e) {
+    e.preventDefault();
+    setError("");
+    setStock(null);
+    try {
+      const res = await fetch(`http://localhost:5000/stocks/${symbol.toUpperCase()}`);
+      if (!res.ok) {
+        const errData = await res.json();
+        setError(errData.error || "Error fetching stock");
+        return;
+      }
+      const data = await res.json();
+      setStock(data);
+    } catch {
+      setError("Network error");
+    }
+  }
+
+  return (
+    <section className="bg-white p-6 rounded shadow">
+      <h2 className="text-xl font-semibold mb-2">Check Stock Price</h2>
+      <form onSubmit={fetchStock} className="flex gap-2">
+        <input
+          type="text"
+          placeholder="Stock symbol (e.g. AAPL)"
+          value={symbol}
+          onChange={(e) => setSymbol(e.target.value)}
+          className="border rounded p-2 flex-grow"
+          required
+        />
+        <button type="submit" className="bg-blue-600 text-white px-4 rounded">
+          Check
+        </button>
+      </form>
+      {stock && (
+        <div className="mt-4">
+          <p>
+            <strong>{stock.name}</strong> ({stock.symbol}): ${stock.price}
+          </p>
+        </div>
+      )}
+      {error && <p className="mt-4 text-red-600">{error}</p>}
+    </section>
+  );
+}
+import { useState } from "react";
+
+export default function BuyStock() {
+  const [userId, setUserId] = useState("");
+  const [symbol, setSymbol] = useState("");
+  const [shares, setShares] = useState(1);
+  const [message, setMessage] = useState("");
+  const [error, setError] = useState("");
+
+  async function handleBuy(e) {
+    e.preventDefault();
+    setMessage("");
+    setError("");
+    try {
+      const
